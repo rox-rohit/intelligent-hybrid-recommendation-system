@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -42,17 +43,42 @@ def md5sum(path: Path, chunk_size: int = 1 << 20) -> str:
     return digest.hexdigest()
 
 
+def download_with_resume(url: str, dest: Path, max_retries: int = 8) -> None:
+    """Stream `url` to `dest`, resuming from partial file on retry."""
+    last_err: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        offset = dest.stat().st_size if dest.exists() else 0
+        headers = {"Range": f"bytes={offset}-"} if offset else {}
+        try:
+            with requests.get(url, stream=True, timeout=(30, 90), headers=headers) as resp:
+                if offset and resp.status_code == 416:
+                    return  # file already complete (server says range unsatisfiable)
+                resp.raise_for_status()
+                if offset and resp.status_code != 206:
+                    # server ignored Range: restart from scratch
+                    offset = 0
+                    mode = "wb"
+                else:
+                    mode = "ab" if offset else "wb"
+                with dest.open(mode) as fh:
+                    for chunk in resp.iter_content(chunk_size=1 << 20):
+                        fh.write(chunk)
+            return
+        except (requests.ConnectionError, requests.Timeout) as err:
+            last_err = err
+            wait = min(2**attempt, 60)
+            print(f"  attempt {attempt}: {err.__class__.__name__} — retrying in {wait}s")
+            time.sleep(wait)
+    raise RuntimeError(f"Download failed after {max_retries} attempts: {last_err}")
+
+
 def main() -> int:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     zip_path = RAW_DIR / "ml-25m.zip"
 
     if not zip_path.exists():
         print(f"Downloading {DATASET_URL} ...")
-        with requests.get(DATASET_URL, stream=True, timeout=60) as resp:
-            resp.raise_for_status()
-            with zip_path.open("wb") as fh:
-                for chunk in resp.iter_content(chunk_size=1 << 20):
-                    fh.write(chunk)
+        download_with_resume(DATASET_URL, zip_path)
         size_mb = zip_path.stat().st_size / (1 << 20)
         print(f"Downloaded {size_mb:.1f} MB -> {zip_path}")
     else:
