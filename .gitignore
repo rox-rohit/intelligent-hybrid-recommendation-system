@@ -1,0 +1,71 @@
+# --- Secrets / environment ---
+.env
+.env.*
+!.env.example
+
+# --- Data: raw datasets and regenerable artifacts are never committed ---
+data/raw/*
+data/processed/*
+data/external/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/external/.gitkeep
+data/raw/README.md
+
+# --- Databases ---
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Model artifacts ---
+models/*
+!models/.gitkeep
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+.python-version
+
+# --- Experiments / tracking ---
+mlruns/
+mlartifacts/
+*.ckpt
+*.pkl
+*.joblib
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- Frontend ---
+node_modules/
+app/frontend/dist/
+app/frontend/build/
+*.local
+.vite/
+
+# --- Testing / coverage ---
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Logs / temp ---
+*.log
+logs/
+tmp/
+.cache/

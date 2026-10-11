@@ -1,0 +1,1 @@
+Raw, immutable source data. Never modify in place — processed outputs go to data/processed/.
