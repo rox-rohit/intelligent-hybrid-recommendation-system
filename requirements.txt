@@ -5,6 +5,15 @@
 # --- Data handling ---
 pandas>=2.2
 numpy>=2.1
+pyarrow>=18.0              # parquet output for processed datasets
+
+# --- EDA / visualization ---
+matplotlib>=3.9
+seaborn>=0.13
+
+# --- Notebooks ---
+jupyterlab>=4.2
+ipykernel>=6.29
 
 # --- ML / modeling ---
 scikit-learn>=1.6
@@ -20,10 +29,6 @@ fastapi>=0.115
 uvicorn[standard]>=0.32
 pydantic>=2.9
 pydantic-settings>=2.6
-
-# --- EDA / visualization ---
-matplotlib>=3.9
-seaborn>=0.13
 
 # --- Testing ---
 pytest>=8.3

@@ -1,0 +1,13 @@
+# Normalize line endings: LF in the repo, native checkout.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# Binary
+*.png binary
+*.jpg binary
+*.zip binary
+*.db binary
+*.pkl binary
+*.joblib binary
+*.npz binary
