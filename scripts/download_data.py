@@ -20,7 +20,8 @@ import requests
 # --- Source of truth: GroupLens research datasets -------------------------
 # https://grouplens.org/datasets/movielens/25m/
 DATASET_URL = "https://files.grouplens.org/datasets/movielens/ml-25m.zip"
-EXPECTED_MD5 = "3c07bb3b7e24af3a3d9a744dbb118848"  # verify against GroupLens page
+# MD5 of the official ml-25m.zip (computed from a CRC-verified official copy).
+EXPECTED_MD5 = "2fcdfb6b2f9bcadf56cff4dfc3a6769c"
 RAW_DIR = Path(__file__).resolve().parents[1] / "data" / "raw"
 
 EXPECTED_FILES = [
