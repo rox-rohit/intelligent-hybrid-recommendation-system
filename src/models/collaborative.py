@@ -28,29 +28,69 @@ log = get_logger(__name__)
 
 
 class ItemKNN:
-    """Item-based collaborative filtering with cosine similarity.
+    """Item-based collaborative filtering with truncated cosine similarities.
 
-    The similarity matrix S = normalize(X)^T @ normalize(X) is computed
-    once; recommendations are S-lookups (fast per request).
+    Memory-bounded design: instead of materializing the full (n_items x
+    n_items) similarity matrix (~900M nonzeros for MovieLens 25M — several
+    GiB), similarities are computed chunk-wise and only the top
+    `top_k_similar` neighbors per item are kept. This is the standard
+    production approach; a full dense kNN graph is neither needed nor
+    affordable.
     """
 
-    def __init__(self, user_item: sp.csr_matrix, shrinkage: int = 0):
+    def __init__(
+        self,
+        user_item: sp.csr_matrix,
+        shrinkage: int = 0,
+        top_k_similar: int = 200,
+        chunk_size: int = 512,
+    ):
         """user_item: CSR (n_users, n_items) of confidence weights >= 0."""
         if user_item.format != "csr":
             user_item = user_item.tocsr()
         self.X = user_item.astype(np.float32)
+        self.n_items = self.X.shape[1]
+        self.top_k = min(top_k_similar, self.n_items - 1)
 
-        # Column-normalize so dot products are cosine similarities.
-        # (right-multiply by a diagonal to scale columns)
+        # Column-normalize once: dot products are then cosine similarities.
         col_norms = np.sqrt(self.X.multiply(self.X).sum(axis=0)).A.ravel()
         col_norms[col_norms == 0] = 1.0
         Xn = (self.X @ sp.diags(1.0 / col_norms, dtype=np.float32)).tocsr()
-        sims = (Xn.T @ Xn).tocsr()
+
+        rows: list[np.ndarray] = []
+        cols: list[np.ndarray] = []
+        data: list[np.ndarray] = []
+
+        # Chunk over query items: peak memory = chunk x n_items dense block
+        for start in range(0, self.n_items, chunk_size):
+            end = min(start + chunk_size, self.n_items)
+            block = (Xn.T[start:end] @ Xn).toarray()  # (chunk, n_items)
+            diag = np.arange(end - start)  # local indices within the chunk
+            block[diag, diag + start] = -np.inf  # self-similarity masked
+
+            k = min(self.top_k, self.n_items - 1)
+            top = np.argpartition(-block, kth=k - 1, axis=1)[:, :k]
+            scores = np.take_along_axis(block, top, axis=1)
+            order = np.argsort(-scores, axis=1)
+            top = np.take_along_axis(top, order, axis=1)
+            scores = np.take_along_axis(scores, order, axis=1)
+
+            keep = scores > 0  # drop zero/negative similarity neighbors
+            nz_r, nz_c = np.nonzero(keep)
+            rows.append(nz_r + start)  # offset back to global item ids
+            cols.append(top[keep])
+            data.append(scores[keep].astype(np.float32))
+
+        sims = sp.csr_matrix(
+            (np.concatenate(data), (np.concatenate(rows), np.concatenate(cols))),
+            shape=(self.n_items, self.n_items),
+            dtype=np.float32,
+        )
 
         if shrinkage:
             # Shrink similarities by interaction-count evidence
-            # (sim * n / (n + shrinkage)) to demote co-occurrence on
-            # tiny support. Sparse-safe: arithmetic on .data directly.
+            # (sim * n / (n + shrinkage)) to demote co-occurrence on tiny
+            # support. Sparse-safe: arithmetic on .data directly.
             co_counts = (self.X.astype(bool).T @ self.X.astype(bool)).tocsr()
             denom = co_counts.copy()
             denom.data = denom.data + shrinkage
@@ -58,7 +98,7 @@ class ItemKNN:
             inv.data = 1.0 / denom.data
             sims = sims.multiply(co_counts).multiply(inv).tocsr()
 
-        self.similarities = sims  # (n_items, n_items) CSR
+        self.similarities = sims  # truncated (n_items, n_items) CSR
 
     def similar_items(self, item_id: int, k: int = 10) -> list[tuple[int, float]]:
         """k most similar items to `item_id` (excluding itself)."""
@@ -74,11 +114,16 @@ class ItemKNN:
         user_id: int,
         k: int = 10,
         seen_items: set[int] | None = None,
+        item_index: pd.Series | dict | None = None,
     ) -> list[tuple[int, float]]:
         """Score items by similarity-weighted sum of the user's history.
 
         score(u, i) = sum_j conf(u, j) * sim(i, j)  over the user's items j.
-        This is the standard item-kNN ranking heuristic.
+
+        `seen_items` should be a set of EXTERNAL movieIds (the same IDs
+        used in the original data). If provided, `item_index` must be a
+        mapping from external movieId -> internal column id (as returned
+        by the confidence-matrix builder).
         """
         user_row = self.X.getrow(user_id)
         if user_row.nnz == 0:
@@ -89,8 +134,12 @@ class ItemKNN:
         scores = np.asarray(
             self.similarities[hist_items].multiply(hist_conf[:, None]).sum(axis=0)
         ).ravel()
-        if seen_items:
-            scores[list(seen_items)] = -np.inf
+
+        if seen_items and item_index is not None:
+            seen_internal = {item_index[m] for m in seen_items if m in item_index}
+            if seen_internal:
+                scores[list(seen_internal)] = -np.inf
+
         k = min(k, scores.size - 1)
         top = np.argpartition(-scores, kth=k - 1)[:k]
         top = top[np.argsort(-scores[top])]

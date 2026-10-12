@@ -1,6 +1,7 @@
 """Unit tests for collaborative filtering models (synthetic fixtures)."""
 
 import numpy as np
+import pandas as pd
 import pytest
 import scipy.sparse as sp
 
@@ -39,8 +40,9 @@ class TestItemKNN:
 
     def test_recommend_for_user(self, conf_matrix):
         knn = ItemKNN(conf_matrix)
-        recs = knn.recommend_for_user(0, k=3, seen_items={0, 1})
-        # user 0 loves items 0,1; the nearest unseen is item 4 (user 1's minor)
+        # 5 items: indices 0-4. user 0 has seen 0,1 -> next should be 4 (user 1's minor)
+        item_index = pd.Series({10: 0, 20: 1, 30: 2, 40: 3, 50: 4})  # dummy mapping
+        recs = knn.recommend_for_user(0, k=3, seen_items={10, 20}, item_index=item_index)
         assert recs[0][0] == 4
         assert len(recs) == 3
 
@@ -64,6 +66,19 @@ class TestItemKNN:
         knn = ItemKNN(conf_matrix)
         s = knn.similarities.toarray()
         np.testing.assert_allclose(s, s.T, atol=1e-6)
+
+    def test_partial_final_chunk_regression(self, conf_matrix):
+        """Real-data regression: 59k items hit a partial final chunk and
+        crashed on a global-vs-local diagonal index. Exercise chunking
+        with a matrix bigger than one chunk (chunk_size=2, 5 items -> 3
+        chunks, last one partial)."""
+        knn = ItemKNN(conf_matrix, chunk_size=2, top_k_similar=3)
+        # self-similarity must be masked everywhere, not just chunk-aligned
+        s = knn.similarities.toarray()
+        np.testing.assert_allclose(np.diag(s), 0.0, atol=1e-6)
+        # and recommendations still work
+        recs = knn.recommend_for_user(0, k=3, seen_items={0, 1})
+        assert len(recs) == 3
 
 
 class TestImplicitALS:
