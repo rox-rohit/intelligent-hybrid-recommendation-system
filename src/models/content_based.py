@@ -69,20 +69,26 @@ class ContentBasedRecommender:
 
     # ------------------------------------------------------------------ #
     def _explain(
-        self, query_row: int, other_row: int, min_contrib: float = 0.05
+        self, query_row: int, other_row: int, rel_threshold: float = 0.25
     ) -> list[str]:
         """Name the top shared features between two movie vectors.
 
         contribution(j) = query[j] * other[j]; the largest products are
-        exactly the features that drove the cosine score.
+        exactly the features that drove the cosine score. A RELATIVE
+        threshold (fraction of the strongest contribution) is robust to
+        vector scale — genome vectors spread similarity over 1,128
+        dimensions, so absolute cutoffs fail there.
         """
         q = self.matrix[query_row].toarray().ravel()
         o = self.matrix[other_row].toarray().ravel()
         contrib = q * o
-        top = np.argsort(-contrib)[: MAX_EXPLANATION_FEATURES + 3]
+        if not contrib.any():
+            return []
+        cutoff = contrib.max() * rel_threshold
+        top = np.argsort(-contrib)[: MAX_EXPLANATION_FEATURES + 5]
         shared = []
         for j in top:
-            if contrib[j] < min_contrib:
+            if contrib[j] < cutoff:
                 break
             name = self._col_by_name.get(int(j))
             if name and name not in shared:
