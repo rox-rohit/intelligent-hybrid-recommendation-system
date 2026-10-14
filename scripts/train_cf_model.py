@@ -100,8 +100,14 @@ def main() -> int:
     sample_users = [u for u in sample_users if truth.get(u)]
     log.info("Sampled users with relevant test items: %d", len(sample_users))
 
+    # seen items per user, but ONLY for the sampled users we score —
+    # building sets for all 162k users (20M memberships) is a needless
+    # multi-GiB allocation that contributed to OOMs.
+    wanted = set(sample_users)
     seen_by_user: dict[int, set[int]] = {
-        int(uid): set(grp["movieId"]) for uid, grp in split.train.groupby("userId")
+        int(uid): set(grp["movieId"])
+        for uid, grp in split.train.groupby("userId")
+        if int(uid) in wanted
     }
 
     # item id -> internal column id
@@ -170,6 +176,24 @@ def main() -> int:
                                            k=K, n_items=n_items_all)
 
     # ---- 5. Persist ------------------------------------------------------
+    # Save trained models to disk
+    models_dir = DOCS_DIR.parent / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+
+    knn.save(models_dir / "itemknn.joblib")
+    als.save(models_dir / "als.joblib")
+
+    # Also save the index mappings needed for inference
+    import joblib
+    index_data = {
+        'user_index': user_index,
+        'item_index': item_index,
+        'col_by_item': col_by_item,
+        'item_by_col': item_by_col,
+    }
+    joblib.dump(index_data, models_dir / "cf_indices.joblib")
+    log.info("Saved CF indices → %s", models_dir / "cf_indices.joblib")
+
     elapsed = time.perf_counter() - t_start
     payload = {
         "experiment": "cf_baselines",

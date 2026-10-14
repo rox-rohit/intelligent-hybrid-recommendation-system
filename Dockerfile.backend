@@ -1,0 +1,10 @@
+# PersonalAI — Docker configuration
+
+# Build the backend image
+docker build -t personalai-backend -f Dockerfile.backend .
+
+# Build the frontend image
+docker build -t personalai-frontend -f Dockerfile.frontend ./app/frontend
+
+# Run with docker-compose
+docker-compose up -d

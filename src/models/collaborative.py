@@ -64,8 +64,9 @@ class ItemKNN:
         # Chunk over query items: peak memory = chunk x n_items dense block
         for start in range(0, self.n_items, chunk_size):
             end = min(start + chunk_size, self.n_items)
-            block = (Xn.T[start:end] @ Xn).toarray()  # (chunk, n_items)
-            diag = np.arange(end - start)  # local indices within the chunk
+            chunk_items = end - start
+            block = (Xn.T[start:end] @ Xn).toarray()  # (chunk_items, n_items)
+            diag = np.arange(chunk_items)  # local indices within the chunk
             block[diag, diag + start] = -np.inf  # self-similarity masked
 
             k = min(self.top_k, self.n_items - 1)
@@ -145,6 +146,43 @@ class ItemKNN:
         top = top[np.argsort(-scores[top])]
         return [(int(i), float(scores[i])) for i in top]
 
+    def save(self, path: str) -> None:
+        """Save the ItemKNN similarity matrix to disk."""
+        import joblib
+        from pathlib import Path
+
+        path_obj = Path(path)
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+        # Save the similarity matrix and metadata
+        state = {
+            'similarities': self.similarities,
+            'n_items': self.n_items,
+            'top_k': self.top_k,
+        }
+        joblib.dump(state, path_obj)
+        log.info("ItemKNN model saved: %s", path_obj)
+
+    @classmethod
+    def load(cls, path: str) -> "ItemKNN":
+        """Load a previously saved ItemKNN model."""
+        import joblib
+        from pathlib import Path
+
+        path_obj = Path(path)
+        if not path_obj.exists():
+            raise FileNotFoundError(f"No saved ItemKNN model at {path_obj}")
+
+        state = joblib.load(path_obj)
+        # Create a dummy instance and restore its state
+        instance = object.__new__(cls)
+        instance.similarities = state['similarities']
+        instance.n_items = state['n_items']
+        instance.top_k = state['top_k']
+        instance.X = None  # Not needed for inference
+        log.info("ItemKNN model loaded: %s", path_obj)
+        return instance
+
 
 class ImplicitALSModel:
     """Confidence-weighted ALS via the `implicit` library (iALS)."""
@@ -196,3 +234,46 @@ class ImplicitALSModel:
         ids, scores = self.model.similar_items(item_id, N=k + 1)
         pairs = [(int(i), float(s)) for i, s in zip(ids, scores) if int(i) != item_id]
         return pairs[:k]
+
+    def save(self, path: str) -> None:
+        """Save the fitted ALS model to disk."""
+        import joblib
+        from pathlib import Path
+
+        if self.model is None:
+            raise RuntimeError("Model is not fitted; call fit() first.")
+
+        path_obj = Path(path)
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+        # Save both the model and the hyperparameters
+        state = {
+            'model': self.model,
+            'factors': self.factors,
+            'iterations': self.iterations,
+            'regularization': self.regularization,
+            'random_state': self.random_state,
+        }
+        joblib.dump(state, path_obj)
+        log.info("ALS model saved: %s", path_obj)
+
+    @classmethod
+    def load(cls, path: str) -> "ImplicitALSModel":
+        """Load a previously saved ALS model."""
+        import joblib
+        from pathlib import Path
+
+        path_obj = Path(path)
+        if not path_obj.exists():
+            raise FileNotFoundError(f"No saved ALS model at {path_obj}")
+
+        state = joblib.load(path_obj)
+        instance = cls(
+            factors=state['factors'],
+            iterations=state['iterations'],
+            regularization=state['regularization'],
+            random_state=state['random_state'],
+        )
+        instance.model = state['model']
+        log.info("ALS model loaded: %s", path_obj)
+        return instance

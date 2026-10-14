@@ -42,6 +42,8 @@ INTERACTION_WEIGHTS: dict[str, float] = {
     "search": 1.0,    # tag applied / searched
     "watchlist": 6.0,  # explicit intent to watch (live-app signal)
     "like": 4.0,       # explicit like (live-app signal)
+    "rate": 1.0,       # explicit rating, weighted by rating value at inference
+    "remove_watchlist": 0.0,  # explicit removal, no positive preference evidence
     "dislike": 0.05,   # explicit negative (near-zero confidence, never 0:
                        # ALS treats 0 as 'unobserved', so negatives must be
                        # distinguishable from 'never seen')
